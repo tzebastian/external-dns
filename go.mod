@@ -71,6 +71,7 @@ require (
 	k8s.io/apimachinery v0.18.8
 	k8s.io/client-go v0.18.8
 	k8s.io/kubernetes v1.13.0
+	github.com/anexia-it/go-anxcloud v0.3.22
 )
 
 replace (
@@ -78,4 +79,5 @@ replace (
 	// TODO(jpg): Pin gRPC to work around breaking change until all dependences are upgraded: https://github.com/etcd-io/etcd/issues/11563
 	google.golang.org/grpc => google.golang.org/grpc v1.26.0
 	k8s.io/klog => github.com/mikkeloscar/knolog v0.0.0-20190326191552-80742771eb6b
+	github.com/anexia-it/go-anxcloud => github.com/X4mp/go-anxcloud v0.3.22-0.20210713082651-f94e1c0a1789
 )
