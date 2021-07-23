@@ -178,7 +178,6 @@ func main() {
 	case "alibabacloud":
 		p, err = alibabacloud.NewAlibabaCloudProvider(cfg.AlibabaCloudConfigFile, domainFilter, zoneIDFilter, cfg.AlibabaCloudZoneType, cfg.DryRun)
 	case "anexia":
-		p,err:=anexia.New
 	case "aws":
 		p, err = aws.NewAWSProvider(
 			aws.AWSConfig{

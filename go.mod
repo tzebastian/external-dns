@@ -72,6 +72,7 @@ require (
 	k8s.io/client-go v0.18.8
 	k8s.io/kubernetes v1.13.0
 	github.com/anexia-it/go-anxcloud v0.3.22
+	sigs.k8s.io/external-dns v0.8.0
 )
 
 replace (
@@ -80,4 +81,5 @@ replace (
 	google.golang.org/grpc => google.golang.org/grpc v1.26.0
 	k8s.io/klog => github.com/mikkeloscar/knolog v0.0.0-20190326191552-80742771eb6b
 	github.com/anexia-it/go-anxcloud => github.com/X4mp/go-anxcloud v0.3.22-0.20210713082651-f94e1c0a1789
+	sigs.k8s.io/external-dns => github.com/tzebastian/external-dns 6e3dc8969daf235a90c9d2ff7e9757311b82d217
 )

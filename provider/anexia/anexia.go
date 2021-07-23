@@ -18,23 +18,55 @@ limitations under the License.
 
 import (
 	"context"
-	"github.com/anexia-it/go-anxcloud/pkg/clouddns/zone"
-	uuid "github.com/satori/go.uuid"
+	"github.com/aws/aws-sdk-go/service/route53"
+	"github.com/pkg/errors"
+	"sigs.k8s.io/external-dns/endpoint"
+	"sigs.k8s.io/external-dns/plan"
+	"sigs.k8s.io/external-dns/provider"
+	"github.com/anexia-it/go-anxcloud/pkg/client"
 )
 
-// Provider defines the interface DNS providers should implement.
-type AnexiaProvider interface {
-	List(ctx context.Context) ([]zone.Zone, error)
-	Get(ctx context.Context, name string) (zone.Zone, error)
-	Create(ctx context.Context, create zone.Definition) (zone.Zone, error)
-	Update(ctx context.Context, name string, update zone.Definition) (zone.Zone, error)
-	Delete(ctx context.Context, name string) error
-	Apply(ctx context.Context, name string, changeset zone.ChangeSet) ([]zone.Record, error)
-	Import(ctx context.Context, name string, zoneData zone.Import) (zone.Revision, error)
-	ListRecords(ctx context.Context, name string) ([]zone.Record, error)
-	NewRecord(ctx context.Context, zone string, record zone.RecordRequest) (zone.Zone, error)
-	UpdateRecord(ctx context.Context, zone string, id uuid.UUID, record zone.RecordRequest) (zone.Zone, error)
-	DeleteRecord(ctx context.Context, zone string, id uuid.UUID) error
+type AnexiaDNSProvider struct {
+	provider.BaseProvider
+	Client client.Client
 }
 
+func NewAnexiaDNSProvider() (AnexiaDNSProvider,error){
+
+}
+
+func (p *AnexiaDNSProvider) Records(ctx context.Context) (endpoints []*endpoint.Endpoint, _ error) {
+	zones, err := p.Zones(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "records retrieval failed")
+	}
+
+	return p.records(ctx, zones)
+}
+
+
+func (p *AnexiaDNSProvider) ApplyChanges(ctx context.Context, changes *plan.Changes) error {
+	zones, err := p.Zones(ctx)
+	if err != nil {
+		return errors.Wrap(err, "failed to list zones, not applying changes")
+	}
+
+	records, ok := ctx.Value(provider.RecordsContextKey).([]*endpoint.Endpoint)
+	if !ok {
+		var err error
+		records, err = p.records(ctx, zones)
+		if err != nil {
+			log.Errorf("failed to get records while preparing to applying changes: %s", err)
+		}
+	}
+
+	updateChanges := p.createUpdateChanges(changes.UpdateNew, changes.UpdateOld, records, zones)
+
+	combinedChanges := make([]*route53.Change, 0, len(changes.Delete)+len(changes.Create)+len(updateChanges))
+	combinedChanges = append(combinedChanges, p.newChanges(route53.ChangeActionCreate, changes.Create, records, zones)...)
+	combinedChanges = append(combinedChanges, p.newChanges(route53.ChangeActionDelete, changes.Delete, records, zones)...)
+	combinedChanges = append(combinedChanges, updateChanges...)
+
+	return p.submitChanges(ctx, combinedChanges, zones)
+}
 
