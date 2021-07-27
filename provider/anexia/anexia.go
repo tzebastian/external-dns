@@ -18,12 +18,14 @@ limitations under the License.
 
 import (
 	"context"
+	"fmt"
 	"github.com/aws/aws-sdk-go/service/route53"
 	"github.com/pkg/errors"
 	"sigs.k8s.io/external-dns/endpoint"
 	"sigs.k8s.io/external-dns/plan"
 	"sigs.k8s.io/external-dns/provider"
 	"github.com/anexia-it/go-anxcloud/pkg/client"
+	"github.com/anexia-it/go-anxcloud/pkg/clouddns/zone"
 )
 
 type AnexiaDNSProvider struct {
@@ -31,19 +33,39 @@ type AnexiaDNSProvider struct {
 	Client client.Client
 }
 
-func NewAnexiaDNSProvider() (AnexiaDNSProvider,error){
+func NewAnexiaDNSProvider() (*AnexiaDNSProvider,error){
+	client,err:=client.New(client.AuthFromEnv(false))
+	if err != nil {
+		return nil,fmt.Errorf("unable to create client %v", err)
+	}
+	prov:=&AnexiaDNSProvider{
+		Client: client,
+	}
 
+	return prov,nil
 }
 
-func (p *AnexiaDNSProvider) Records(ctx context.Context) (endpoints []*endpoint.Endpoint, _ error) {
-	zones, err := p.Zones(ctx)
+func (p *AnexiaDNSProvider) Records(ctx context.Context) (endpoints []*endpoint.Endpoint,_ error) {
+	zones, err := zone.NewAPI(p.Client).List(ctx)
+
 	if err != nil {
 		return nil, errors.Wrap(err, "records retrieval failed")
 	}
 
-	return p.records(ctx, zones)
-}
+	for _, _zone:=range zones{
+		records,err:=zone.NewAPI(p.Client).ListRecords(ctx,_zone.ZoneName)
 
+		if err != nil {
+			return nil, errors.Wrap(err, "error retrieving records")
+		}
+
+		for _,_record:=range records{
+			endpoints=append(endpoints, endpoint.NewEndpointWithTTL(_record.Name,_record.Type,endpoint.TTL(int64(*_record.TTL)),_record.RData))
+		}
+	}
+
+	return endpoints,nil
+}
 
 func (p *AnexiaDNSProvider) ApplyChanges(ctx context.Context, changes *plan.Changes) error {
 	zones, err := p.Zones(ctx)
