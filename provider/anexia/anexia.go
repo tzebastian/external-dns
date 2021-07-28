@@ -19,7 +19,6 @@ limitations under the License.
 import (
 	"context"
 	"fmt"
-	"github.com/aws/aws-sdk-go/service/route53"
 	"github.com/pkg/errors"
 	"sigs.k8s.io/external-dns/endpoint"
 	"sigs.k8s.io/external-dns/plan"
@@ -32,6 +31,13 @@ type AnexiaDNSProvider struct {
 	provider.BaseProvider
 	Client client.Client
 }
+
+type AnexiaDNSChange struct {
+	Action string
+	ResourceRecordSet zone.Record
+}
+
+const defaultTTL int = 3600
 
 func NewAnexiaDNSProvider() (*AnexiaDNSProvider,error){
 	client,err:=client.New(client.AuthFromEnv(false))
@@ -68,27 +74,67 @@ func (p *AnexiaDNSProvider) Records(ctx context.Context) (endpoints []*endpoint.
 }
 
 func (p *AnexiaDNSProvider) ApplyChanges(ctx context.Context, changes *plan.Changes) error {
-	zones, err := p.Zones(ctx)
-	if err != nil {
-		return errors.Wrap(err, "failed to list zones, not applying changes")
-	}
+	combinedChanges := make([]*AnexiaDNSChange, 0, len(changes.Create)+len(changes.UpdateNew)+len(changes.Delete))
 
-	records, ok := ctx.Value(provider.RecordsContextKey).([]*endpoint.Endpoint)
-	if !ok {
-		var err error
-		records, err = p.records(ctx, zones)
-		if err != nil {
-			log.Errorf("failed to get records while preparing to applying changes: %s", err)
+	combinedChanges = append(combinedChanges, newAnexiaDNSChanges("CREATE", changes.Create)...)
+	combinedChanges = append(combinedChanges, newAnexiaDNSChanges("UPDATE", changes.UpdateNew)...)
+	combinedChanges = append(combinedChanges, newAnexiaDNSChanges("DELETE", changes.Delete)...)
+
+	return p.submitChanges(ctx, combinedChanges)
+}
+
+func newAnexiaDNSChanges(action string, endpoints []*endpoint.Endpoint) []*AnexiaDNSChange {
+	changes := make([]*AnexiaDNSChange, 0, len(endpoints))
+	ttl := defaultTTL
+
+	for _, ep := range endpoints {
+		if ep.RecordTTL.IsConfigured() {
+			ttl = int(ep.RecordTTL)
 		}
+
+		change := &AnexiaDNSChange{
+			Action: action,
+			ResourceRecordSet: zone.Record{
+				Name:       ep.DNSName,
+				RData:      ep.Targets[0],
+				TTL:        &ttl,
+				Type:       ep.RecordType,
+			},
+		}
+
+		changes = append(changes, change)
+	}
+	return changes
+}
+
+func (p *AnexiaDNSProvider) submitChanges(ctx context.Context, changes []*AnexiaDNSChange) error {
+	if len(changes) == 0{
+		return nil
 	}
 
-	updateChanges := p.createUpdateChanges(changes.UpdateNew, changes.UpdateOld, records, zones)
+	zones, err := zone.NewAPI(p.Client).List(ctx)
+	if err != nil {
+		return err
+	}
 
-	combinedChanges := make([]*route53.Change, 0, len(changes.Delete)+len(changes.Create)+len(updateChanges))
-	combinedChanges = append(combinedChanges, p.newChanges(route53.ChangeActionCreate, changes.Create, records, zones)...)
-	combinedChanges = append(combinedChanges, p.newChanges(route53.ChangeActionDelete, changes.Delete, records, zones)...)
-	combinedChanges = append(combinedChanges, updateChanges...)
+	separatedChanges := separateChangesByZones(zones, changes)
 
-	return p.submitChanges(ctx, combinedChanges, zones)
+	for zoneName, changes := range separatedChanges {
+		zone.NewAPI(p.Client)
+	}
+}
+
+func separateChangesByZones(zones []zone.Zone, changes []*AnexiaDNSChange) map[string][]*AnexiaDNSChange {
+	change := make(map[string][]*AnexiaDNSChange)
+	zoneNameID := provider.ZoneIDName{}
+
+	for _, z := range zones {
+		zoneNameID.Add(z.Name, z.Name)
+		change[z.Name] = []*AnexiaDNSChange{}
+	}
+
+	for _, c := range changes {
+		zone, _ := zoneNameID.FindZone(c.ResourceRecordSet.Name)
+	}
 }
 
